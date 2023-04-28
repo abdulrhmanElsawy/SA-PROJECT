@@ -1,13 +1,13 @@
-//users use functions
-
-const controller = require('../controllers/users');
-const router = require('express').Router();
-
-// CRUD Routes /users
-router.get('/', controller.getUsers); // /users
-router.get('/:userId', controller.getUser); // /users/:userId
-router.post('/', controller.createUser); // /users
-router.put('/:userId', controller.updateUser); // /users/:userId
-router.delete('/:userId', controller.deleteUser); // /users/:userId
-
-module.exports = router;
+db:
+    image: mysql:latest
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: your_mysql_root_password
+      MYSQL_DATABASE: your_mysql_database
+      MYSQL_USER: your_mysql_user
+      MYSQL_PASSWORD: your_mysql_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data:/var/lib/mysql
+      
