@@ -1,13 +1,14 @@
-db:
-    image: mysql:latest
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: your_mysql_root_password
-      MYSQL_DATABASE: your_mysql_database
-      MYSQL_USER: your_mysql_user
-      MYSQL_PASSWORD: your_mysql_password
-    ports:
-      - "3306:3306"
-    volumes:
-      - ./data:/var/lib/mysql
-      
+// connection between db and pg 
+const Sequelize = require('sequelize');
+
+const sequelize = new Sequelize(
+    process.env.PG_DB,
+    process.env.PG_USER,
+    process.env.PG_PASSWORD,
+    {
+        host: process.env.PG_HOST,
+        dialect: 'postgres',
+    }
+);
+
+module.exports = sequelize;
