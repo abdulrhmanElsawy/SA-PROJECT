@@ -1,0 +1,868 @@
+const express = require('express');
+const mysql = require('mysql');
+const cors = require('cors');
+const session = require('express-session');
+const cookieParser = require('cookie-parser');
+const bodyParser = require('body-parser');
+const bcrypt = require('bcrypt');
+const axios = require( "axios");
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const Jimp = require('jimp');
+const nodemailer = require('nodemailer');
+
+
+
+
+const app = express();
+axios.defaults.withCredentials = true;
+
+app.use(session({
+    secret: 'secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: false,
+        maxAge: 1000 * 60 * 60 * 24
+    }
+}));
+
+
+
+
+app.use(express.urlencoded({extended: true}));
+app.use(express.json());
+
+
+// app.use(cors({
+//     origin : ["https://hearme.khuprat.com"],
+//     methods: ["POST", "GET","DELETE"],
+//     credentials: true
+// }));
+
+
+app.use(cors({
+    origin : ["http://localhost:3000"],
+    methods: ["POST", "GET","DELETE","PUT"],
+    credentials: true
+}));
+
+
+
+app.use(cookieParser());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+
+//connection to database
+
+
+// const con = mysql.createConnection({
+//     user: "khuptvyw_hearme",
+//     host: "localhost",
+//     password: "hearme222***",
+//     database: "khuptvyw_hearme"
+// });
+
+const con = mysql.createConnection({
+    user: "root",
+    host: "localhost",
+    password: "",
+    database: "hearme"
+});
+
+
+con.connect((err) => {
+    if (err) {
+        console.error('Error connecting to MySQL database: ' + err.stack);
+        return;
+    }
+    console.log('Connected to MySQL database as id ' + con.threadId);
+});
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, path.join(__dirname, '..','../hearme/public/uploads/'));
+    },
+    filename: function (req, file, cb) {
+        const timestamp = Date.now();
+        const fileExt = file.originalname.split('.').pop();
+        const fileName = timestamp + '.' + fileExt;
+        cb(null, fileName);
+    }
+});
+
+const upload = multer({
+    dest: path.join(__dirname, '..','../hearme/public/uploads/'),
+
+    storage: storage,
+    
+    fileFilter: function (req, file, cb) {
+        const fileTypes = /jpeg|jpg|png|gif|mp3|wav|mpeg|audio/;
+        const extname = fileTypes.test(path.extname(file.originalname).toLowerCase());
+        console.log(extname);
+        const mimetype = fileTypes.test(file.mimetype);
+        console.log(file.mimetype);
+
+        if (mimetype && extname) {
+            console.log("jfnj");
+
+            return cb(null, true);
+        } else {
+            return cb('Error: Only Images and Audio files are allowed!');
+        }
+    }
+    
+});
+
+function cropImage(imagePath, cb) {
+    const outputPath = imagePath.replace(/(\.[\w\d_-]+)$/i, '-thumbnail$1');
+    Jimp.read(imagePath, function (err, image) {
+        if (err) {
+            return cb(err);
+        }
+        image.cover(150, 150)
+        .quality(90)
+        .write(outputPath, function (err) {
+            if (err) {
+                return cb(err);
+            }
+            return cb(null, outputPath);
+        });
+    });
+}
+
+app.post("/upload-image", upload.single("image"), (req, res) => {
+    const file = req.file;
+
+    if (file) {
+        const imagePath = file.path;
+        cropImage(imagePath, function (err, imagePathThumbnail) {
+            if (err) {
+                console.log(err);
+                return res.send({ message: 'Error uploading image' });
+            } else {
+                con.query("UPDATE users SET img = ? WHERE id = ?", [imagePathThumbnail.replace(/^.*[\\\/]/, ''), req.body.userId?req.body.userId:req.session.userId], (err, result) => {
+                    if (err) {
+                        console.error(err);
+                        return res.send({ message: 'Error updating database' });
+                    } else {
+                        return res.send({ message: 'Profile image updated successfully' });
+                    }
+                });
+            }
+        });
+    } else {
+        return res.send({ message: 'User not authenticated' });
+    }
+});
+
+
+
+
+app.get('/session', (req, res) => {
+    if(req.session.email) {
+        return res.json({valid: true, email: req.session.email,userId : req.session.userId})
+    } else {
+        return res.json({valid: false})
+    }
+});
+
+app.post('/signup', (req, res) => {
+    const email = req.body.email;
+    const password = req.body.password;
+    const phonenumber = req.body.phonenumber;
+    const name = req.body.name;
+
+    con.query("SELECT * FROM users WHERE email = ?", [email], (err, result) => {
+        if (err) {
+            console.error(err);
+            res.send({ message: 'Error registering user' });
+        } else {
+            if (result.length > 0) {
+                res.send({ message: 'Email already exists' });
+            } else {
+                bcrypt.hash(password, 10, (err, hash) => {
+                    if (err) {
+                        console.error(err);
+                        res.send({ message: 'Error registering user' });
+                    } else {
+                        con.query("INSERT INTO users(email,password,phonenumber,name) VALUES(?,?,?,?)", [email, hash, phonenumber, name],
+                            (err, result) => {
+                                if (result) {
+                                    res.send({message : "Please kindly wait until one of our administrators activates your account."});
+                                } else {
+                                    res.send({ err, message: "Enter Correct asked details" });
+                                }
+                            }
+                        )
+                    }
+                });
+            }
+        }
+    });
+});
+
+
+app.post('/user', (req, res) => {
+    const userId = req.body.userId;
+
+    con.query("SELECT * FROM users WHERE id = ?", [userId], (err, result) => {
+    if (err) {
+        console.error(err);
+        res.send({ message: 'Error getting user' });
+
+    } else {
+        if (result.length > 0) {
+        res.send(result[0]);
+        } else {
+        res.send({ message: 'User not found' });
+
+        }
+    }
+    });
+});
+
+
+
+app.post('/get-item', (req, res) => {
+    const itemId = req.body.itemId;
+    const table = req.body.table;
+
+    con.query(`SELECT * FROM ${table} WHERE id = ?`, [itemId], (err, result) => {
+    if (err) {
+        console.error(err);
+        res.send({ message: 'Error getting item' });
+
+    } else {
+        if (result.length > 0) {
+        res.send(result[0]);
+        } else {
+        res.send({ message: 'item not found' });
+
+        }
+    }
+    });
+});
+
+
+
+
+app.post('/login', (req, res) => {
+    const email = req.body.email;
+    const password = req.body.password;
+
+    con.query("SELECT * FROM users WHERE email =?", [email],
+        (err,result) => {
+            if(err) {
+                res.send({err: err})
+            } else {
+                if(result.length > 0) {
+                    if (result[0].status === 'in-active') {
+                        res.send({message: "Your account is inactive. Please wait until one of our administrators activates your account."});
+                    } else {
+                        bcrypt.compare(password, result[0].password, (err, isMatch) => {
+                            if (isMatch) {
+                                req.session.email = result[0].email;
+                                req.session.userId = result[0].id;
+
+                                res.json(result);
+                            } else {
+                                res.send({message : "Wrong username or password"});
+                            }
+                        });
+                    }
+                } else {
+                    res.send({message : "Wrong username or password"});
+                }
+            }
+        }
+    )
+});
+
+
+
+app.post('/loginAdmin', (req, res) => {
+    const email = req.body.email;
+    const password = req.body.password;
+
+    con.query("SELECT * FROM users WHERE email =? AND type = 'admin'", [email],
+        (err,result) => {
+            if(err) {
+                res.send({err: err})
+            } else {
+                if(result.length > 0) {
+                    if (result[0].status === 'in-active') {
+                        res.send({message: "Your account is inactive. Please wait until one of our administrators activates your account."});
+                    } else {
+                        bcrypt.compare(password, result[0].password, (err, isMatch) => {
+                            if (isMatch) {
+                                req.session.email = result[0].email;
+                                req.session.userId = result[0].id;
+
+                                res.json(result);
+                            } else {
+                                res.send({message : "Wrong username or password"});
+                            }
+                        });
+                    }
+                } else {
+                    res.send({message : "Wrong username or password"});
+                }
+            }
+        }
+    )
+});
+
+
+
+app.get('/logout', (req, res) => {
+    if (req.session.email) {
+        res.header('Cache-control', 'no-cashe');
+        req.session.destroy((err) => {
+            if (err) {
+                return console.log(err);
+            } else {
+                return res.send({logout: true});
+            }
+        });
+    }
+});
+
+
+
+function getResultHistory(req, res) {
+    const userId = req.session.userId;
+    con.query("SELECT * FROM `result_history` WHERE userid = ?", [userId], (err, result) => {
+    if (err) {
+    console.error(err);
+    res.send({ message: 'Error getting result history' });
+    } else {
+    res.send({ data: result });
+    }
+    });
+    }
+    
+    app.get('/result-history', (req, res) => {
+    if (req.session.userId) {
+    getResultHistory(req, res);
+    } else {
+    res.send({ message: 'User not authenticated' });
+    }
+    });
+    
+    
+    
+    
+
+    app.delete('/result-history/:id', (req, res) => {
+        const resultId = req.params.id;
+        const userId = req.session.userId;
+        
+
+
+        con.query('SELECT * FROM `result_history` WHERE id = ?', [resultId], (err, result) => {
+        if (err) {
+            return res.send({ message: 'Error deleting result history' });
+        } else if (result.length === 0) {
+            return res.send({ message: 'Result history not found' });
+        } else if (result[0].userid != userId) {
+
+            return res.send({ message: 'Unauthorized access to result history' });
+        } else {
+            con.query('DELETE FROM `result_history` WHERE id = ?', [resultId], (err, result) => {
+            if (err) {
+                return res.send({ message: 'Error deleting result history' });
+            } else {
+                return res.send({ message: 'Result history deleted successfully' });
+            }
+            });
+        }
+        });
+    });
+    
+    
+
+    app.get('/questions', (req, res) => {
+        con.query("SELECT * FROM test_questions", (err, result) => {
+        if (err) {
+            console.error(err);
+            res.send({ message: 'Error retrieving questions' });
+        } else {
+
+            res.send(result);
+        }
+        });
+    });
+    
+
+
+
+    app.post('/add-result', (req, res) => {
+        const userId = req.session.userId;
+        const name = "Eary Test";
+        const score = req.body.score;
+        con.query("INSERT INTO  `result-history` (userId,name,score) VALUES(?,?,?)", [userId, name, score],
+            (err, result) => {
+                if (result) {
+                    return res.send({result : "Added successfully"});
+                } else {
+                    return res.send({ result: "Please Login to save your results" });
+                }
+            }
+        )
+    });
+    
+
+    app.post('/send-email', (req, res) => {
+        const { recipientEmail, subject, body } = req.body;
+    
+        // create reusable transporter object using the default SMTP transport
+        let transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true, // true for 465, false for other ports
+        auth: {
+            user: "abdoelsawyx88@gmail.com", // your email address
+            pass: "hbxxvmfprzlvhvxk", // your email password
+        },
+        });
+    
+        // send mail with defined transport object
+        let mailOptions = {
+        from: `Hearme website Customer ${recipientEmail}`, // sender address
+        to: "abdoelsawyx1@gmail.com", // list of receivers
+        subject: subject, // Subject line
+        text: body, // plain text body
+        };
+    
+        transporter.sendMail(mailOptions, (error, info) => {
+        if (error) {
+            console.log(error);
+            res.status(500).send({ message: 'Email failed to send.' });
+        } else {
+            console.log('Email sent: ' + info.response);
+            res.send({ message: 'Email sent successfully.' });
+        }
+        });
+    });
+
+
+
+    app.post('/get-item-count', (req, res) => {
+        const table = req.body.table;
+
+            con.query(`SELECT COUNT(*) AS totalCount FROM ${table}`,
+                (err, result) => {
+                    if (result) {
+                        const totalCount = result[0].totalCount;
+                        res.status(200).json({ totalCount });
+                        res.send(totalCount);
+                    } else {
+                        res.send({ err, message: "Enter Correct asked details" });
+                    }
+                }
+            )
+                
+                
+    });
+
+
+
+    
+app.post('/AllItems', (req, res) => {
+    const table = req.body.table;
+
+    con.query(`SELECT * FROM ${table}`, (err, result) => {
+    if (err) {
+        res.send({ message: 'Error getting Items' });
+
+    } else {
+        if (result.length > 0) {
+            res.send(result);
+        } else {
+            res.send({ message: 'Items Are Empty' });
+        }
+    }
+    });
+});
+
+
+
+    
+app.get('/AllWaitingUsers', (req, res) => {
+
+    con.query(`SELECT * FROM users where status='in-active'`, (err, result) => {
+    if (err) {
+        res.send({ message: 'Error getting Items' });
+
+    } else {
+        if (result.length > 0) {
+            res.send(result);
+        } else {
+            res.send({ message: 'Items Are Empty' });
+        }
+    }
+    });
+});
+
+app.post("/add-user-admin", upload.single("image"), (req, res) => {
+    
+    const {
+        name,
+        email,
+        password,
+        phonenumber,
+        status,
+        type,
+    } = req.body;
+
+
+    const file = req.file;
+
+
+
+
+    if (!name || !email || !password || !phonenumber || !status || !type) {
+        return res.status(400).send({ message: "All fields are required" });
+    }
+
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+        if (err) {
+            return res.status(500).send({ message: "Server error" });
+        }
+
+        const insertQuery =
+            "INSERT INTO users (name, email, password, phonenumber, status, type) VALUES (?, ?, ?, ?, ?, ?)";
+        const values = [name, email, hashedPassword, phonenumber, status, type];
+
+        con.query(insertQuery, values, (err, result) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).send({ message: "Server error" });
+            }
+
+            const userId = result.insertId; // get the ID of the newly inserted user
+
+            console.log(userId);
+
+
+            if (file) {
+                console.log(userId);
+
+                const imagePath = file.path;
+                console.log(imagePath);
+                cropImage(imagePath, function (err, imagePathThumbnail) {
+                    if (err) {
+                        console.log(err);
+                        return res.send({ message: 'Error uploading image' });
+                    } else {
+                        con.query("UPDATE users SET img = ? WHERE id = ?", [imagePathThumbnail.replace(/^.*[\\\/]/, ''), userId], (err, result) => {
+                            if (err) {
+
+                                console.error(err);
+                                return res.send({ message: 'Error updating database' });
+                            }else{
+
+                            }
+                        });
+                    }
+                });
+            }
+
+            return res.status(200).send({ message: "User added successfully" });
+        });
+    });
+});
+
+
+
+
+app.delete('/delete-item/:id', (req, res) => {
+    const itemId = req.params.id;
+    const table = req.body.table;
+    
+    // execute the query to delete the item
+    con.query(`SELECT * FROM ${table} WHERE id = ?`, [itemId], (err, result) => {
+    if (err) {
+        console.error('Error deleting item:', err);
+        return res.send({ message: 'Error deleting item' });
+    }
+    if (result.length === 0) {
+        return res.send({ message: 'Item not found' });
+    }
+
+    con.query(`DELETE FROM ${table} WHERE id = ?`, [itemId], (err, result) => {
+        if (err) {
+        console.error('Error deleting the item:', err);
+        return res.send({ message: 'Error deleting the item' });
+        }
+        console.log('Item deleted successfully');
+        return res.send({ message: 'Item deleted successfully' });
+    });
+    });
+
+});
+
+
+
+
+app.put('/activate-item/:id', (req, res) => {
+    const itemId = req.params.id;
+    const table = req.body.table;
+    console.log(table)
+    console.log(itemId)
+
+    // execute the query to delete the item
+    con.query(`SELECT * FROM ${table} WHERE id = ?`, [itemId], (err, result) => {
+    if (err) {
+        console.error('Error Activating item:', err);
+        return res.send({ message: 'Error Activating item' });
+    }
+    if (result.length === 0) {
+        return res.send({ message: 'Item not found' });
+    }
+
+    con.query(`UPDATE ${table} SET status='active' WHERE id = ?`, [itemId], (err, result) => {
+        if (err) {
+        console.error('Error Activating the item:', err);
+        return res.send({ message: 'Error deleting the item' });
+        }
+        console.log('Item Activating successfully');
+        return res.send({ message: 'Item Activating successfully' });
+    });
+    });
+
+});
+
+
+
+app.put("/edit-user", upload.single("image"), (req, res) => {
+    const userId = req.body.userId;
+    const {
+    name,
+    email,
+    password,
+    phonenumber,
+    status,
+    type,
+    } = req.body;
+
+    let values = [];
+
+    let updateQuery = "UPDATE users SET ";
+
+    if (name) {
+    updateQuery += "name = ?,";
+    values.push(name);
+    }
+    if (email) {
+    updateQuery += "email = ?,";
+    values.push(email);
+    }
+    if (password) {
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+        if (err) {
+        return res.status(500).send({ message: "Server error" });
+        }
+        updateQuery += "password = ?,";
+        values.push(hashedPassword);
+    });
+    }
+    if (phonenumber) {
+    updateQuery += "phonenumber = ?,";
+    values.push(phonenumber);
+    }
+    if (status) {
+    updateQuery += "status = ?,";
+    values.push(status);
+    }
+    if (type) {
+    updateQuery += "type = ?,";
+    values.push(type);
+    }
+
+    if (values.length === 0) {
+    return res.status(400).send({ message: "No fields provided" });
+    }
+
+    updateQuery = updateQuery.slice(0, -1) + " WHERE id = ?";
+
+    values.push(userId);
+
+    con.query(updateQuery, values, (err, result) => {
+    if (err) {
+        console.error(err);
+        return res.status(500).send({ message: "Server error" });
+    } 
+    });
+});
+
+
+
+
+
+
+app.put("/edit-result", (req, res) => {
+
+    const {
+    name,
+    score,
+    resultId,
+    } = req.body;
+
+    let values = [];
+
+    let updateQuery = "UPDATE `result_history` SET ";
+
+    if (name) {
+    updateQuery += "name = ?,";
+    values.push(name);
+    }
+    if (score) {
+    updateQuery += "score = ?,";
+    values.push(score);
+    }
+    
+
+
+    if (values.length === 0) {
+    return res.status(400).send({ message: "No fields provided" });
+    }
+
+    updateQuery = updateQuery.slice(0, -1) + " WHERE id = ?";
+
+    values.push(resultId);
+
+    con.query(updateQuery, values, (err, result) => {
+    if (err) {
+        console.error(err);
+        return res.status(500).send({ message: "Server error" });
+    } else{
+        console.log('Updated successfully');
+        return res.send({ message: 'Updated successfully' });
+
+    }
+    });
+});
+
+
+
+
+
+
+
+app.put("/update-question-admin/:id", upload.fields([{ name: 'image', maxCount: 1 }, { name: 'audio', maxCount: 1 }]), (req, res) => {
+
+    const {
+        title,
+        question,
+        answer1,
+        answer1Priority,
+        answer2,
+        answer2Priority,
+        answer3,
+        answer3Priority,
+        answer4,
+        answer4Priority,
+        header,
+        para,
+    } = req.body;
+
+    const file = req.files;
+    const id = req.params.id;
+
+    let updateQuery = "UPDATE test_questions SET ";
+    let values = [];
+
+    if (title) {
+        updateQuery += "title=?, ";
+        values.push(title);
+    }
+
+    if (question) {
+        updateQuery += "question=?, ";
+        values.push(question);
+    }
+
+    if (answer1) {
+        updateQuery += "answer1=?, ";
+        values.push(answer1);
+    }
+
+    if (answer1Priority) {
+        updateQuery += "answer1_priority=?, ";
+        values.push(answer1Priority);
+    }
+
+    if (answer2) {
+        updateQuery += "answer2=?, ";
+        values.push(answer2);
+    }
+
+    if (answer2Priority) {
+        updateQuery += "answer2_priority=?, ";
+        values.push(answer2Priority);
+    }
+
+    if (answer3) {
+        updateQuery += "answer3=?, ";
+        values.push(answer3);
+    }
+
+    if (answer3Priority) {
+        updateQuery += "answer3_priority=?, ";
+        values.push(answer3Priority);
+    }
+
+    if (answer4) {
+        updateQuery += "answer4=?, ";
+        values.push(answer4);
+    }
+
+    if (answer4Priority) {
+        updateQuery += "answer4_priority=?, ";
+        values.push(answer4Priority);
+    }
+
+    if (header) {
+        updateQuery += "header=?, ";
+        values.push(header);
+    }
+
+    if (para) {
+        updateQuery += "para=?, ";
+        values.push(para);
+    }
+
+    if (file && file.image && file.image.length > 0) {
+        updateQuery += "img=?, ";
+        values.push(req.files.image[0].filename);
+    }
+
+    if (file && file.audio && file.audio.length > 0) {
+        updateQuery += "audio=?, ";
+        values.push(req.files.audio[0].filename);
+    }
+
+    // Remove the last comma and space from the query
+    updateQuery = updateQuery.slice(0, -2);
+
+    // Add the id to the end of the query
+    updateQuery += " WHERE id=?";
+
+    // Add the id value to the end of the values array
+    values.push(id);
+
+    con.query(updateQuery, values, (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send({ message: "Server error" });
+        }
+
+        return res.status(200).send({ message: "Question updated successfully" });
+    });
+});
+
+
+module.exports = app;
