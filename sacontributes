@@ -17,7 +17,7 @@ import com.example.hearme.repository.service.Results;
 
 
 @RestController
-@RequestMapping("/")
+@RequestMapping("/result")
 public class ResultController {
 		
 	@Autowired
@@ -25,15 +25,15 @@ public class ResultController {
 	
 
 	
-    @GetMapping("result/{userId}")
+    @GetMapping("/{userId}")
     public List<ShowResults> getResults(@PathVariable Long userId) {
-//        return resultRepository.findByUserId(userId);
-    	  return results.ShowResult(userId);
+	//  return resultRepository.findByUserId(userId);
+		return results.ShowResult(userId);
     }
     
     
     
-	@PostMapping("/result")
+	@PostMapping("/")
 	public String addUser(@RequestBody ShowResults newResult ) {
 		
 		results.addResult(newResult);
@@ -42,7 +42,7 @@ public class ResultController {
 	}
 	
 	
-	@DeleteMapping("/result/{id}")
+	@DeleteMapping("/{id}")
 	public String deleteResult(@PathVariable long id ) {
 		
 		results.deleteResult(id);
