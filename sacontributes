@@ -1,14 +1,57 @@
-// connection between db and pg 
-const Sequelize = require('sequelize');
+package com.example.hearme.controller;
 
-const sequelize = new Sequelize(
-    process.env.PG_DB,
-    process.env.PG_USER,
-    process.env.PG_PASSWORD,
-    {
-        host: process.env.PG_HOST,
-        dialect: 'postgres',
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+import com.example.hearme.model.TestQuestions;
+import com.example.hearme.repository.service.Questions;
+
+
+@RestController
+@RequestMapping("/questions")
+public class QuestionsController {
+
+    private final Questions questions;
+
+    @Autowired
+    public QuestionsController(Questions questions) {
+        this.questions = questions;
     }
-);
 
-module.exports = sequelize;
+    @GetMapping
+    public List<TestQuestions> getAllQuestions() {
+        return questions.getAllQuestions();
+    }
+
+    @GetMapping("/{id}")
+    public TestQuestions getQuestionById(@PathVariable Long id) {
+        return questions.getQuestionById(id);
+    }
+
+    @PostMapping
+    public String addQuestion(@RequestBody TestQuestions newQuestion) {
+        questions.addQuestion(newQuestion);
+        return "Question Saved Successfully";
+    }
+
+    @PutMapping("/{id}")
+    public String updateQuestion(@PathVariable Long id, @RequestBody TestQuestions question) {
+        question.setId(id);
+        questions.updateQuestion(question);
+        return "Question Updated Successfully";
+    }
+
+    @DeleteMapping("/{id}")
+    public String deleteQuestion(@PathVariable long id) {
+        questions.deleteQuestion(id);
+        return "Question Deleted Successfully";
+    }
+}
